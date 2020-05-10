@@ -21,10 +21,14 @@ class PolicyNet(nn.Module):
 
 class AgentPG(Agent):
     def __init__(self, env, args):
+        # device
+        #self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = 'cpu'
+
         self.env = env
         self.model = PolicyNet(state_dim = self.env.observation_space.shape[0],
                                action_num= self.env.action_space.n,
-                               hidden_dim=64)
+                               hidden_dim=64).to(self.device)
         if args.test_pg:
             self.load('pg.cpt')
 
@@ -56,9 +60,10 @@ class AgentPG(Agent):
 
     def init_game_setting(self):
         self.rewards, self.saved_actions = [], []
+        self.action_log_probs = []
 
     def make_action(self, state, test=False):
-        state = torch.from_numpy(state).float().unsqueeze(0)
+        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
         probs = self.model(state)
         # Use your model to output distribution over actions and sample from it.
         # HINT: torch.distributions.Categorical
@@ -90,14 +95,24 @@ class AgentPG(Agent):
         # loss = sum(-R_i * log(action_prob))
         loss = []
         # vectorize it
+        """
+        print(len(self.action_log_probs), len(normalized_discount_reward))
         for log_prob, R in zip(self.action_log_probs, normalized_discount_reward):
             loss.append(-log_prob * R)
 
         TotalLoss = torch.cat(loss).sum()   
+        """
+        # discount reward
+        
+        A = torch.tensor(self.action_log_probs)
+        B = normalized_discount_reward
+        TotalLoss = - A * B
+        TotalLoss = TotalLoss.sum()
+        TotalLoss.requires_grad = True
         #print('TotalLoss', TotalLoss)
 
         self.optimizer.zero_grad()
-        TotalLoss.backward(retain_graph=True)
+        TotalLoss.backward()
         self.optimizer.step()
 
     def train(self):
