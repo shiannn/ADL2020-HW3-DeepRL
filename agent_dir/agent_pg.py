@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Categorical
+from torch.distributions import Bernoulli
 
 from agent_dir.agent import Agent
 from environment import Environment
@@ -10,14 +11,18 @@ from environment import Environment
 class PolicyNet(nn.Module):
     def __init__(self, state_dim, action_num, hidden_dim):
         super(PolicyNet, self).__init__()
-        self.fc1 = nn.Linear(state_dim, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, action_num)
+        self.fc = nn.Linear(state_dim, hidden_dim)
+
+        self.action_layer = nn.Linear(hidden_dim, action_num)
+        self.state_layer = nn.Linear(hidden_dim, 1)
 
     def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        action_prob = F.softmax(x, dim=1)
-        return action_prob
+        x = F.relu(self.fc(x))
+        state_value = self.state_layer(x)
+        action_value = self.action_layer(x)
+        action_prob = F.softmax(action_value, dim=1)
+        
+        return state_value, action_prob
 
 class AgentPG(Agent):
     def __init__(self, env, args):
@@ -28,7 +33,7 @@ class AgentPG(Agent):
         self.env = env
         self.model = PolicyNet(state_dim = self.env.observation_space.shape[0],
                                action_num= self.env.action_space.n,
-                               hidden_dim=64).to(self.device)
+                               hidden_dim=128).to(self.device)
         if args.test_pg:
             self.load('pg.cpt')
 
@@ -61,16 +66,19 @@ class AgentPG(Agent):
     def init_game_setting(self):
         self.rewards, self.saved_actions = [], []
         self.action_log_probs = []
+        self.state_values = []
 
     def make_action(self, state, test=False):
         state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
-        probs = self.model(state)
+        state_value, probs = self.model(state)
         # Use your model to output distribution over actions and sample from it.
         # HINT: torch.distributions.Categorical
         m = Categorical(probs)
         #action = self.env.action_space.sample() # TODO: Replace this line!
         action = m.sample()
         self.action_log_probs.append(m.log_prob(action))
+        self.state_values.append(state_value.squeeze(1))
+
         return action.item()
 
     def update(self):
@@ -80,40 +88,50 @@ class AgentPG(Agent):
         #print(len(self.rewards))
         R = 0
         discount_reward = []
-        for idx in range(len(self.rewards)-1,-1,-1):
-            R = self.rewards[idx] + self.gamma * R
-            discount_reward.append(R)
-        discount_reward.reverse()
+        for r in self.rewards[::-1]:
+            R = r + self.gamma * R
+            discount_reward.insert(0, R)
+        
         discount_reward = torch.tensor(discount_reward)
-        means = discount_reward.mean()
-        stds = discount_reward.std()
-        normalized_discount_reward = (discount_reward - means) / (stds + self.eps)
+        # discount reward
+        normalized_discount_reward = (discount_reward - discount_reward.mean()) / (discount_reward.std() + self.eps)
+        #torch.clamp_(normalized_discount_reward, -1, 1)
+        #normalized_discount_reward = torch.clamp(normalized_discount_reward, -1, 1)
 
+        state_value_tensor = torch.cat(self.state_values)
+        #print(len(state_value_tensor), len(normalized_discount_reward))
 
         # TODO:
         # compute PG loss
         # loss = sum(-R_i * log(action_prob))
-        loss = []
-        # vectorize it
-        """
-        print(len(self.action_log_probs), len(normalized_discount_reward))
-        for log_prob, R in zip(self.action_log_probs, normalized_discount_reward):
-            loss.append(-log_prob * R)
-
-        TotalLoss = torch.cat(loss).sum()   
-        """
-        # discount reward
+        PG_Loss = []
+        for log_prob, R in zip(self.action_log_probs, discount_reward):
+            PG_Loss.append(-log_prob * R)
         
+        """
+        # vectorize it 
         A = torch.tensor(self.action_log_probs)
         B = normalized_discount_reward
-        TotalLoss = - A * B
-        TotalLoss = TotalLoss.sum()
-        TotalLoss.requires_grad = True
-        #print('TotalLoss', TotalLoss)
 
+        advantage = B - state_value_tensor
+        #print(advantage)
+        actionLoss = - A * advantage
+        actionLoss = actionLoss.sum()
+        #actionLoss.requires_grad = True
+
+        valueLoss = F.smooth_l1_loss(state_value_tensor, B)
+        valueLoss = valueLoss.sum()
+
+        #print('valueLoss', valueLoss)
+        TotalLoss = actionLoss
+        #print('TotalLoss', TotalLoss)
+        """
         self.optimizer.zero_grad()
-        TotalLoss.backward()
+        PG_Loss = torch.cat(PG_Loss).sum()
+        PG_Loss.backward()
         self.optimizer.step()
+
+
 
     def train(self):
         avg_reward = None
@@ -139,8 +157,6 @@ class AgentPG(Agent):
                 print('Epochs: %d/%d | Avg reward: %f '%
                        (epoch, self.num_episodes, avg_reward))
                 
-                if avg_reward > 0:
-                    exit(0)
 
             if avg_reward > 50: # to pass baseline, avg. reward > 50 is enough.
                 self.save('pg.cpt')
