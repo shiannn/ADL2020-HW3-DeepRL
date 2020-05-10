@@ -27,8 +27,8 @@ class PolicyNet(nn.Module):
 class AgentPG(Agent):
     def __init__(self, env, args):
         # device
-        #self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.device = 'cpu'
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        #self.device = 'cpu'
 
         self.env = env
         self.model = PolicyNet(state_dim = self.env.observation_space.shape[0],
@@ -92,7 +92,7 @@ class AgentPG(Agent):
             R = r + self.gamma * R
             discount_reward.insert(0, R)
         
-        discount_reward = torch.tensor(discount_reward)
+        discount_reward = torch.tensor(discount_reward).to(self.device)
         # discount reward
         normalized_discount_reward = (discount_reward - discount_reward.mean()) / (discount_reward.std() + self.eps)
         #torch.clamp_(normalized_discount_reward, -1, 1)
@@ -104,31 +104,14 @@ class AgentPG(Agent):
         # TODO:
         # compute PG loss
         # loss = sum(-R_i * log(action_prob))
-        PG_Loss = []
-        for log_prob, R in zip(self.action_log_probs, discount_reward):
-            PG_Loss.append(-log_prob * R)
         
-        """
-        # vectorize it 
-        A = torch.tensor(self.action_log_probs)
-        B = normalized_discount_reward
+        # vectorize it
+        self.action_log_probs = torch.cat(self.action_log_probs)
+        PG_Loss_vector = - self.action_log_probs * discount_reward
+        PG_Loss_vector = PG_Loss_vector.sum()
 
-        advantage = B - state_value_tensor
-        #print(advantage)
-        actionLoss = - A * advantage
-        actionLoss = actionLoss.sum()
-        #actionLoss.requires_grad = True
-
-        valueLoss = F.smooth_l1_loss(state_value_tensor, B)
-        valueLoss = valueLoss.sum()
-
-        #print('valueLoss', valueLoss)
-        TotalLoss = actionLoss
-        #print('TotalLoss', TotalLoss)
-        """
         self.optimizer.zero_grad()
-        PG_Loss = torch.cat(PG_Loss).sum()
-        PG_Loss.backward()
+        PG_Loss_vector.backward()
         self.optimizer.step()
 
 
