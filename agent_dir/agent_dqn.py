@@ -11,6 +11,27 @@ from environment import Environment
 
 use_cuda = torch.cuda.is_available()
 
+class ReplayBuffer(object):
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.memory = []
+        self.pos = 0
+    
+    def push(self, experience):
+        # experience should be a list [st, at, r{t+1}, s{t+1}]
+        # save the experience
+        if len(self.memory) < self.capacity:
+            # if still not full, just put the experience in
+            self.memory.append(None)
+        self.memory[self.pos] = experience
+        self.pos = (self.pos + 1) % self.capacity
+    
+    def sample(self, batch_size):
+        return random.sample(self.memory, batch_size)
+    
+    def __len__(self):
+        return len(self.memory)
+
 
 class DQN(nn.Module):
     '''
@@ -55,6 +76,11 @@ class AgentDQN(Agent):
         # discounted reward
         self.GAMMA = 0.99
 
+        # EPS_START decay exponentially to EP_END for choosing action
+        self.EPS_START = 0.9
+        self.EPS_END = 0.05
+        self.EPS_DECAY = 200
+
         # training hyperparameters
         self.train_freq = 4 # frequency to train the online network
         self.learning_start = 10000 # before we start to update our network, we wait a few steps first to fill the replay.
@@ -71,6 +97,7 @@ class AgentDQN(Agent):
         self.steps = 0 # num. of passed steps
 
         # TODO: initialize your replay buffer
+        self.replayBuffer = ReplayBuffer(self.buffer_size)
 
 
     def save(self, save_path):
@@ -96,22 +123,63 @@ class AgentDQN(Agent):
         # Implement epsilon-greedy to decide whether you want to randomly select
         # an action or not.
         # HINT: You may need to use and self.steps
-
-        action = self.env.action_space.sample()
+        sample = random.random()
+        eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) *\
+             math.exp(-1. * self.steps / self.EPS_DECAY)
+        #self.steps += 1
+        if sample > eps_threshold:
+            # action based on rule
+            with torch.no_grad():
+                values, indices = self.online_net(state.cuda()).max(1)
+                action = indices.item()
+                #print('action based on rule')
+                #print(action)
+        else:
+            action = self.env.action_space.sample()
+            #print('action based on random')
+            #print(action)
 
         return action
 
     def update(self):
         # TODO:
         # step 1: Sample some stored experiences as training examples.
+        experiences = self.replayBuffer.sample(self.batch_size)
+        state_batch = [experience[0] for experience in experiences]
+        action_batch = [experience[1] for experience in experiences]
+        reward_batch = [experience[2] for experience in experiences]
+        next_state_batch = [experience[3] for experience in experiences]
         # step 2: Compute Q(s_t, a) with your model.
+        state_batch_tensor = torch.cat(state_batch).cuda()
+        value_online, indices_online = self.online_net(state_batch_tensor).max(1)
+        Q_st = value_online
         # step 3: Compute Q(s_{t+1}, a) with target model.
+        next_state_batch_tensor = torch.cat(next_state_batch).cuda()
+        value_target, indices_target = self.target_net(next_state_batch_tensor).max(1)
+        Q_st_1 = value_target
         # step 4: Compute the expected Q values: rewards + gamma * max(Q(s_{t+1}, a))
+        reward_batch_tensor = torch.tensor(reward_batch).cuda()
+        expected_Q = reward_batch_tensor + self.GAMMA * Q_st_1
         # step 5: Compute temporal difference loss
         # HINT:
         # 1. You should not backprop to the target model in step 3 (Use torch.no_grad)
         # 2. You should carefully deal with gamma * max(Q(s_{t+1}, a)) when it
         #    is the terminal state.
+        
+        #print(expected_Q)
+        #print(Q_st)
+        THEloss = (expected_Q - Q_st).sum()
+        loss = F.smooth_l1_loss(Q_st, expected_Q)
+        #print(THEloss)
+        #print(loss)
+        self.optimizer.zero_grad()
+        self.target_net.eval()
+        loss.backward()
+        for param in self.online_net.parameters():
+            param.grad.data.clamp_(-1, 1)
+        self.target_net.train()
+        self.optimizer.step()
+        #print(loss)
 
         return loss.item()
 
@@ -135,17 +203,20 @@ class AgentDQN(Agent):
                 next_state = torch.from_numpy(next_state).permute(2,0,1).unsqueeze(0)
 
                 # TODO: store the transition in memory
+                experience = [state, action, reward, next_state]
+                self.replayBuffer.push(experience)
 
                 # move to the next state
                 state = next_state
 
                 # Perform one step of the optimization
-                if self.steps > self.learning_start and self.steps % self.train_freq == 0:
+                if self.steps > self.learning_start and (self.steps % self.train_freq == 0):
                     loss = self.update()
 
                 # TODO: update target network
                 if self.steps > self.learning_start and self.steps % self.target_update_freq == 0:
-                    pass
+                    # target network should get the weight of policy network
+                    self.target_net.load_state_dict(self.online_net.state_dict())
 
                 # save the model
                 if self.steps % self.save_freq == 0:
