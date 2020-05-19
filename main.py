@@ -53,7 +53,7 @@ def run(args):
         env = Environment('MsPacmanNoFrameskip-v0', args, atari_wrapper=True, test=True)
         from agent_dir.agent_dqn import AgentDQN
         agent = AgentDQN(env, args)
-        test(agent, env, total_episodes=100)
+        test(agent, env, total_episodes=50)
 
 if __name__ == '__main__':
     args = parse()

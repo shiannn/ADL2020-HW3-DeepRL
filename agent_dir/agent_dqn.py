@@ -123,11 +123,14 @@ class AgentDQN(Agent):
         # Implement epsilon-greedy to decide whether you want to randomly select
         # an action or not.
         # HINT: You may need to use and self.steps
+        if test == True:
+            state = torch.from_numpy(state).permute(2,0,1).unsqueeze(0)
+
         sample = random.random()
         eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) *\
              math.exp(-1. * self.steps / self.EPS_DECAY)
         #self.steps += 1
-        if sample > eps_threshold:
+        if sample > eps_threshold or test==True:
             # action based on rule
             with torch.no_grad():
                 values, indices = self.online_net(state.cuda()).max(1)
@@ -154,12 +157,19 @@ class AgentDQN(Agent):
         value_online, indices_online = self.online_net(state_batch_tensor).max(1)
         Q_st = value_online
         # step 3: Compute Q(s_{t+1}, a) with target model.
-        next_state_batch_tensor = torch.cat(next_state_batch).cuda()
-        value_target, indices_target = self.target_net(next_state_batch_tensor).max(1)
-        Q_st_1 = value_target
+        non_final_mask = torch.tensor(list(map(lambda s:s is not None, next_state_batch))).cuda()
+        non_final_next_states = torch.cat([s for s in next_state_batch if s is not None]).cuda()
+        
+        next_state_values = torch.zeros(self.batch_size).cuda()
+        #next_state_batch_tensor = torch.cat(next_state_batch).cuda()
+        value_target, indices_target = self.target_net(non_final_next_states).max(1)
+        
+        next_state_values[non_final_mask] = value_target
+        #Q_st_1 = value_target
+        
         # step 4: Compute the expected Q values: rewards + gamma * max(Q(s_{t+1}, a))
         reward_batch_tensor = torch.tensor(reward_batch).cuda()
-        expected_Q = reward_batch_tensor + self.GAMMA * Q_st_1
+        expected_Q = reward_batch_tensor + self.GAMMA * next_state_values
         # step 5: Compute temporal difference loss
         # HINT:
         # 1. You should not backprop to the target model in step 3 (Use torch.no_grad)
@@ -168,9 +178,10 @@ class AgentDQN(Agent):
         
         #print(expected_Q)
         #print(Q_st)
-        THEloss = (expected_Q - Q_st).sum()
-        loss = F.smooth_l1_loss(Q_st, expected_Q)
-        #print(THEloss)
+        #THEloss = (expected_Q - Q_st).sum()
+        loss_fn = torch.nn.MSELoss()
+        #loss = F.smooth_l1_loss(Q_st, expected_Q)
+        loss = loss_fn(Q_st, expected_Q)
         #print(loss)
         self.optimizer.zero_grad()
         self.target_net.eval()
