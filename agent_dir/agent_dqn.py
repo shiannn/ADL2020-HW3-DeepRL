@@ -87,7 +87,7 @@ class AgentDQN(Agent):
         self.batch_size = 32
         self.num_timesteps = 3000000 # total training steps
         self.display_freq = 10 # frequency to display training progress
-        self.save_freq = 200000 # frequency to save the model
+        self.save_freq = 20000 # frequency to save the model
         self.target_update_freq = 1000 # frequency to update target network
         self.buffer_size = 10000 # max size of replay buffer
 
@@ -148,10 +148,21 @@ class AgentDQN(Agent):
         # TODO:
         # step 1: Sample some stored experiences as training examples.
         experiences = self.replayBuffer.sample(self.batch_size)
+        state_batch = []
+        action_batch = []
+        reward_batch = []
+        next_state_batch = []
+        for experience in experiences:
+            state_batch.append(experience[0])
+            action_batch.append(experience[1])
+            reward_batch.append(experience[2])
+            next_state_batch.append(experience[3])
+        """
         state_batch = [experience[0] for experience in experiences]
         action_batch = [experience[1] for experience in experiences]
         reward_batch = [experience[2] for experience in experiences]
         next_state_batch = [experience[3] for experience in experiences]
+        """
         # step 2: Compute Q(s_t, a) with your model.
         state_batch_tensor = torch.cat(state_batch).cuda()
         value_online, indices_online = self.online_net(state_batch_tensor).max(1)
@@ -231,16 +242,21 @@ class AgentDQN(Agent):
 
                 # save the model
                 if self.steps % self.save_freq == 0:
-                    self.save('dqn')
+                    self.save('dqn'+str(self.steps))
 
                 self.steps += 1
 
+            if total_reward / self.display_freq > 30:
+                self.save('dqn')
+                
             if episodes_done_num % self.display_freq == 0:
                 print('Episode: %d | Steps: %d/%d | Avg reward: %f | loss: %f '%
                         (episodes_done_num, self.steps, self.num_timesteps, total_reward / self.display_freq, loss))
+
                 total_reward = 0
 
             episodes_done_num += 1
             if self.steps > self.num_timesteps:
                 break
+
         self.save('dqn')

@@ -70,7 +70,11 @@ class AgentPG(Agent):
 
     def make_action(self, state, test=False):
         state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
-        state_value, probs = self.model(state)
+        if test == True:
+            self.model.eval()
+            state_value, probs = self.model(state)
+        else:
+            state_value, probs = self.model(state)
         # Use your model to output distribution over actions and sample from it.
         # HINT: torch.distributions.Categorical
         m = Categorical(probs)
@@ -141,6 +145,6 @@ class AgentPG(Agent):
                        (epoch, self.num_episodes, avg_reward))
                 
 
-            if avg_reward > 50: # to pass baseline, avg. reward > 50 is enough.
+            if avg_reward > 170: # to pass baseline, avg. reward > 50 is enough.
                 self.save('pg.cpt')
                 break
