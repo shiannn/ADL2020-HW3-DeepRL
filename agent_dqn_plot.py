@@ -59,7 +59,7 @@ class DQN(nn.Module):
 
 
 class AgentDQN(Agent):
-    def __init__(self, env, args):
+    def __init__(self, env, args, gamma=0.99, explore=[0.9,0.05,200], target_update_freq=1000):
         self.env = env
         self.input_channels = 4
         self.num_actions = self.env.action_space.n
@@ -74,12 +74,12 @@ class AgentDQN(Agent):
             self.load('dqn')
 
         # discounted reward
-        self.GAMMA = 0.99
+        self.GAMMA = gamma
 
         # EPS_START decay exponentially to EP_END for choosing action
-        self.EPS_START = 0.9
-        self.EPS_END = 0.05
-        self.EPS_DECAY = 200
+        self.EPS_START = explore[0]
+        self.EPS_END = explore[1]
+        self.EPS_DECAY = explore[2]
 
         # training hyperparameters
         self.train_freq = 4 # frequency to train the online network
@@ -88,7 +88,7 @@ class AgentDQN(Agent):
         self.num_timesteps = 3000000 # total training steps
         self.display_freq = 10 # frequency to display training progress
         self.save_freq = 20000 # frequency to save the model
-        self.target_update_freq = 1000 # frequency to update target network
+        self.target_update_freq = target_update_freq # frequency to update target network
         self.buffer_size = 10000 # max size of replay buffer
 
         # optimizer
@@ -101,9 +101,10 @@ class AgentDQN(Agent):
 
 
     def save(self, save_path):
-        print('save model to', save_path)
-        torch.save(self.online_net.state_dict(), save_path + '_online.cpt')
-        torch.save(self.target_net.state_dict(), save_path + '_target.cpt')
+        #print('save model to', save_path)
+        #torch.save(self.online_net.state_dict(), save_path + '_online.cpt')
+        #torch.save(self.target_net.state_dict(), save_path + '_target.cpt')
+        return
 
     def load(self, load_path):
         print('load model from', load_path)
@@ -206,8 +207,13 @@ class AgentDQN(Agent):
         return loss.item()
 
     def train(self):
+        import matplotlib.pyplot as plt
         episodes_done_num = 0 # passed episodes
         total_reward = 0 # compute average reward
+        total_reward_in_episode = 0
+        window_size = 20 # size of window of moving average
+        moving_reward = [] # compute moving average
+        plot_list = [0] * window_size
         loss = 0
         while(True):
             state = self.env.reset()
@@ -220,6 +226,8 @@ class AgentDQN(Agent):
                 action = self.make_action(state)
                 next_state, reward, done, _ = self.env.step(action)
                 total_reward += reward
+
+                total_reward_in_episode += reward
 
                 # process new state
                 next_state = torch.from_numpy(next_state).permute(2,0,1).unsqueeze(0)
@@ -248,12 +256,29 @@ class AgentDQN(Agent):
 
             if total_reward / self.display_freq > 30:
                 self.save('dqn')
+            
+            if len(moving_reward) >= window_size:
+                moving_reward.pop(0)
+            moving_reward.append(total_reward_in_episode)
+            total_reward_in_episode = 0
                 
             if episodes_done_num % self.display_freq == 0:
                 print('Episode: %d | Steps: %d/%d | Avg reward: %f | loss: %f '%
                         (episodes_done_num, self.steps, self.num_timesteps, total_reward / self.display_freq, loss))
 
                 total_reward = 0
+
+            # plot moving average reward
+            if len(moving_reward) >= window_size:
+                plot_list.append(sum(moving_reward)/len(moving_reward))
+                """
+                plt.plot(plot_list)
+                plt.xlabel('number of episodes playing')
+                plt.ylabel('average reward of last {} episodes'.format(window_size))
+                plt.title('learning curve of dqn with pacman')
+                plt.savefig('dqn-learning_curve.png')
+                """
+                yield plot_list
 
             episodes_done_num += 1
             if self.steps > self.num_timesteps:
