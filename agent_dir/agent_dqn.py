@@ -101,9 +101,10 @@ class AgentDQN(Agent):
 
 
     def save(self, save_path):
-        print('save model to', save_path)
-        torch.save(self.online_net.state_dict(), save_path + '_online.cpt')
-        torch.save(self.target_net.state_dict(), save_path + '_target.cpt')
+        #print('save model to', save_path)
+        #torch.save(self.online_net.state_dict(), save_path + '_online.cpt')
+        #torch.save(self.target_net.state_dict(), save_path + '_target.cpt')
+        return
 
     def load(self, load_path):
         print('load model from', load_path)
@@ -206,8 +207,13 @@ class AgentDQN(Agent):
         return loss.item()
 
     def train(self):
+        import matplotlib.pyplot as plt
         episodes_done_num = 0 # passed episodes
         total_reward = 0 # compute average reward
+        total_reward_in_episode = 0
+        window_size = 20 # size of window of moving average
+        moving_reward = [] # compute moving average
+        plot_list = [0] * window_size
         loss = 0
         while(True):
             state = self.env.reset()
@@ -220,6 +226,8 @@ class AgentDQN(Agent):
                 action = self.make_action(state)
                 next_state, reward, done, _ = self.env.step(action)
                 total_reward += reward
+
+                total_reward_in_episode += reward
 
                 # process new state
                 next_state = torch.from_numpy(next_state).permute(2,0,1).unsqueeze(0)
@@ -248,12 +256,26 @@ class AgentDQN(Agent):
 
             if total_reward / self.display_freq > 30:
                 self.save('dqn')
+            
+            if len(moving_reward) >= window_size:
+                moving_reward.pop(0)
+            moving_reward.append(total_reward_in_episode)
+            total_reward_in_episode = 0
                 
             if episodes_done_num % self.display_freq == 0:
                 print('Episode: %d | Steps: %d/%d | Avg reward: %f | loss: %f '%
                         (episodes_done_num, self.steps, self.num_timesteps, total_reward / self.display_freq, loss))
 
                 total_reward = 0
+
+            # plot moving average reward
+            if len(moving_reward) >= window_size:
+                plot_list.append(sum(moving_reward)/len(moving_reward))
+                plt.plot(plot_list)
+                plt.xlabel('number of episodes playing')
+                plt.ylabel('average reward of last {} episodes'.format(window_size))
+                plt.title('learning curve of dqn with pacman')
+                plt.savefig('dqn-learning_curve.png')
 
             episodes_done_num += 1
             if self.steps > self.num_timesteps:
