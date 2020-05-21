@@ -76,34 +76,42 @@ def run(args):
 
     elif args.plot_dqn == 2:
         import matplotlib.pyplot as plt
-        env_name = args.env_name or 'MsPacmanNoFrameskip-v0'
+        game_name = 'MsPacmanNoFrameskip-v0'
+        #game_name = 'UpNDownNoFrameskip-v0'
+        #game_name = 'AmidarNoFrameskip-v0'
+        #game_name = 'GopherNoFrameskip-v0'
+        #game_name = 'SkiingNoFrameskip-v0'
+        env_name = args.env_name or game_name
         env = Environment(env_name, args, atari_wrapper=True)
         from agent_dqn_plot import AgentDQN
-        agent1 = AgentDQN(env, args, target_update_freq=1000)
-        agent2 = AgentDQN(env, args, target_update_freq=900)
-        agent3 = AgentDQN(env, args, target_update_freq=800)
-        agent4 = AgentDQN(env, args, target_update_freq=700)
+        agent1 = AgentDQN(env, args, buffer_size=10000, plotting=True)
+        agent2 = AgentDQN(env, args, buffer_size=8000, plotting=True)
+        agent3 = AgentDQN(env, args, buffer_size=400, plotting=True)
+        agent4 = AgentDQN(env, args, buffer_size=80, plotting=True)
 
         dqn_training1 = agent1.train()
         dqn_training2 = agent2.train()
         dqn_training3 = agent3.train()
         dqn_training4 = agent4.train()
 
-        for _ in range(50):
+        for episode in range(6000):
             window_size = 20
             ret1 = next(dqn_training1)
             ret2 = next(dqn_training2)
             ret3 = next(dqn_training3)
             ret4 = next(dqn_training4)
-            plt.plot(ret1)
-            plt.plot(ret2)
-            plt.plot(ret3)
-            plt.plot(ret4)
-            plt.xlabel('number of episodes playing')
-            plt.ylabel('average reward of last {} episodes'.format(window_size))
-            plt.title('learning curve of dqn with pacman')
-            plt.savefig('dqn-learning_curve.png')
-            #print(ret)
+            if episode % 10 == 0:
+                plt.plot(ret1, label='buffer_size=10000')
+                plt.plot(ret2, label='buffer_size=8000')
+                plt.plot(ret3, label='buffer_size=400')
+                plt.plot(ret4, label='buffer_size=80')
+                plt.xlabel('number of episodes playing')
+                plt.ylabel('average reward of last {} episodes'.format(window_size))
+                plt.legend()
+                plt.title('learning curve of dqn with {}'.format(game_name))
+                plt.savefig('dqn-learning_curve.png')
+                plt.close()
+                #print(ret)
     
     if args.plot_pg:
         env_name = args.env_name or 'LunarLander-v2'

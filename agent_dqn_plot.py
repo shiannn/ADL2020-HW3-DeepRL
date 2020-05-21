@@ -59,7 +59,7 @@ class DQN(nn.Module):
 
 
 class AgentDQN(Agent):
-    def __init__(self, env, args, gamma=0.99, explore=[0.9,0.05,200], target_update_freq=1000):
+    def __init__(self, env, args, gamma=0.99, explore=[0.9,0.05,200], target_update_freq=1000, LR=1e-4, buffer_size=10000, plotting=False):
         self.env = env
         self.input_channels = 4
         self.num_actions = self.env.action_space.n
@@ -83,18 +83,20 @@ class AgentDQN(Agent):
 
         # training hyperparameters
         self.train_freq = 4 # frequency to train the online network
-        self.learning_start = 10000 # before we start to update our network, we wait a few steps first to fill the replay.
+        self.learning_start = 4000 # before we start to update our network, we wait a few steps first to fill the replay.
         self.batch_size = 32
         self.num_timesteps = 3000000 # total training steps
         self.display_freq = 10 # frequency to display training progress
         self.save_freq = 20000 # frequency to save the model
         self.target_update_freq = target_update_freq # frequency to update target network
-        self.buffer_size = 10000 # max size of replay buffer
+        self.buffer_size = buffer_size # max size of replay buffer
 
         # optimizer
-        self.optimizer = optim.RMSprop(self.online_net.parameters(), lr=1e-4)
+        self.optimizer = optim.RMSprop(self.online_net.parameters(), lr=LR)
 
         self.steps = 0 # num. of passed steps
+
+        self.plotting = plotting
 
         # TODO: initialize your replay buffer
         self.replayBuffer = ReplayBuffer(self.buffer_size)
@@ -131,7 +133,7 @@ class AgentDQN(Agent):
         eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) *\
              math.exp(-1. * self.steps / self.EPS_DECAY)
         #self.steps += 1
-        if sample > eps_threshold or test==True:
+        if sample > eps_threshold or test==True or self.plotting == True:
             # action based on rule
             with torch.no_grad():
                 values, indices = self.online_net(state.cuda()).max(1)
