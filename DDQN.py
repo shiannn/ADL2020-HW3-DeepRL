@@ -10,7 +10,6 @@ from agent_dir.agent import Agent
 from environment import Environment
 
 use_cuda = torch.cuda.is_available()
-device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
 #torch.manual_seed(0)
 #random.seed(0)
 
@@ -34,7 +33,6 @@ class ReplayBuffer(object):
     
     def __len__(self):
         return len(self.memory)
-
 
 class DQN(nn.Module):
     '''
@@ -60,20 +58,17 @@ class DQN(nn.Module):
         q = self.head(x)
         return q
 
-
-class AgentDQN(Agent):
-    def __init__(self, env, args, gamma=0.99, explore=[0.9,0.05,200], target_update_freq=1000, LR=1e-4, buffer_size=10000):
+class AgentDDQN(Agent):
+    def __init__(self, env, args, gamma=0.99, explore=[0.9,0.05,200], target_update_freq=1000, LR=1e-4, buffer_size=10000, plotting=False):
         self.env = env
         self.input_channels = 4
         self.num_actions = self.env.action_space.n
 
         # build target, online network
         self.target_net = DQN(self.input_channels, self.num_actions)
-        #self.target_net = self.target_net.cuda() if use_cuda else self.target_net
-        self.target_net = self.target_net.to(device)
+        self.target_net = self.target_net.cuda() if use_cuda else self.target_net
         self.online_net = DQN(self.input_channels, self.num_actions)
-        #self.online_net = self.online_net.cuda() if use_cuda else self.online_net
-        self.online_net = self.online_net.to(device)
+        self.online_net = self.online_net.cuda() if use_cuda else self.online_net
 
         if args.test_dqn:
             self.load('dqn')
@@ -97,10 +92,11 @@ class AgentDQN(Agent):
         self.buffer_size = buffer_size # max size of replay buffer
 
         # optimizer
-        #self.optimizer = optim.RMSprop(self.online_net.parameters(), lr=LR)
-        self.optimizer = optim.Adam(self.online_net.parameters(), lr=LR)
+        self.optimizer = optim.RMSprop(self.online_net.parameters(), lr=LR)
 
         self.steps = 0 # num. of passed steps
+
+        self.plotting = plotting
 
         # TODO: initialize your replay buffer
         self.replayBuffer = ReplayBuffer(self.buffer_size)
@@ -140,7 +136,7 @@ class AgentDQN(Agent):
         if sample > eps_threshold:
             # action based on rule
             with torch.no_grad():
-                values, indices = self.online_net(state.to(device)).max(1)
+                values, indices = self.online_net(state.cuda()).max(1)
                 action = indices.item()
                 #print('action based on rule')
                 #print(action)
@@ -171,24 +167,28 @@ class AgentDQN(Agent):
         next_state_batch = [experience[3] for experience in experiences]
         """
         # step 2: Compute Q(s_t, a) with your model.
-        state_batch_tensor = torch.cat(state_batch).to(device)
+        state_batch_tensor = torch.cat(state_batch).cuda()
         value_online, indices_online = self.online_net(state_batch_tensor).max(1)
         Q_st = value_online
         # step 3: Compute Q(s_{t+1}, a) with target model.
-        non_final_mask = torch.tensor(list(map(lambda s:s is not None, next_state_batch))).to(device)
-        non_final_next_states = torch.cat([s for s in next_state_batch if s is not None]).to(device)
+        non_final_mask = torch.tensor(list(map(lambda s:s is not None, next_state_batch))).cuda()
+        non_final_next_states = torch.cat([s for s in next_state_batch if s is not None]).cuda()
         
-        next_state_values = torch.zeros(self.batch_size).to(device)
+        next_state_values = torch.zeros(self.batch_size).cuda()
         #next_state_batch_tensor = torch.cat(next_state_batch).cuda()
         
-        value_target, indices_target = self.target_net(non_final_next_states).max(1)
+        value_online, indices_online = self.online_net(non_final_next_states).max(1)
+        value_target = self.target_net(non_final_next_states)
         
+        value_target = value_target.gather(1, indices_online.view(-1,1))
+        value_target = value_target.squeeze()
+        # use indices to choose
         
         next_state_values[non_final_mask] = value_target
         #Q_st_1 = value_target
         
         # step 4: Compute the expected Q values: rewards + gamma * max(Q(s_{t+1}, a))
-        reward_batch_tensor = torch.tensor(reward_batch).to(device)
+        reward_batch_tensor = torch.tensor(reward_batch).cuda()
         expected_Q = reward_batch_tensor + self.GAMMA * next_state_values
         # step 5: Compute temporal difference loss
         # HINT:

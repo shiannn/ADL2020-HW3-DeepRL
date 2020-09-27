@@ -35,43 +35,60 @@ class ReplayBuffer(object):
     def __len__(self):
         return len(self.memory)
 
-
-class DQN(nn.Module):
+class Dueling_DQN(nn.Module):
     '''
     This architecture is the one from OpenAI Baseline, with small modification.
     '''
     def __init__(self, channels, num_actions):
-        super(DQN, self).__init__()
+        super(Dueling_DQN, self).__init__()
+        self.num_actions = num_actions
         self.conv1 = nn.Conv2d(channels, 32, kernel_size=8, stride=4)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
         self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
-        self.fc = nn.Linear(3136, 512)
-        self.head = nn.Linear(512, num_actions)
+
+        #self.fc1_adv = nn.Linear(in_features=7*7*64, out_features=512)
+        #self.fc2_adv = nn.Linear(in_features=512, out_features=num_actions)
+        self.adv1 = nn.Linear(3136, 512)
+        self.adv2 = nn.Linear(512, num_actions)
+
+        #self.fc1_val = nn.Linear(in_features=7*7*64, out_features=512)
+        #self.fc2_val = nn.Linear(in_features=512, out_features=1)
+        self.val1 = nn.Linear(3136, 512)
+        self.val2 = nn.Linear(512, 1)
 
         self.relu = nn.ReLU()
         self.lrelu = nn.LeakyReLU(0.01)
-
 
     def forward(self, x):
         x = self.relu(self.conv1(x))
         x = self.relu(self.conv2(x))
         x = self.relu(self.conv3(x))
-        x = self.lrelu(self.fc(x.view(x.size(0), -1)))
-        q = self.head(x)
-        return q
+        x = x.view(x.size(0), -1)
 
+        adv = self.lrelu(self.adv1(x))
+        adv = self.adv2(adv)
 
-class AgentDQN(Agent):
-    def __init__(self, env, args, gamma=0.99, explore=[0.9,0.05,200], target_update_freq=1000, LR=1e-4, buffer_size=10000):
+        val = self.lrelu(self.val1(x))
+        #val = self.val2(val).expand(x.size(0), self.num_actions)
+        val = self.val2(val)
+        
+        
+        #x = val + adv - adv.mean(1).unsqueeze(1).expand(x.size(0), self.num_actions)
+        #return x
+        return val + adv - adv.mean()
+        
+
+class AgentDuel(Agent):
+    def __init__(self, env, args, gamma=0.99, explore=[0.9,0.05,200], target_update_freq=1000, LR=1e-4, buffer_size=10000, plotting=False):
         self.env = env
         self.input_channels = 4
         self.num_actions = self.env.action_space.n
 
         # build target, online network
-        self.target_net = DQN(self.input_channels, self.num_actions)
+        self.target_net = Dueling_DQN(self.input_channels, self.num_actions)
         #self.target_net = self.target_net.cuda() if use_cuda else self.target_net
         self.target_net = self.target_net.to(device)
-        self.online_net = DQN(self.input_channels, self.num_actions)
+        self.online_net = Dueling_DQN(self.input_channels, self.num_actions)
         #self.online_net = self.online_net.cuda() if use_cuda else self.online_net
         self.online_net = self.online_net.to(device)
 
@@ -101,6 +118,8 @@ class AgentDQN(Agent):
         self.optimizer = optim.Adam(self.online_net.parameters(), lr=LR)
 
         self.steps = 0 # num. of passed steps
+
+        self.plotting = plotting
 
         # TODO: initialize your replay buffer
         self.replayBuffer = ReplayBuffer(self.buffer_size)
@@ -180,7 +199,7 @@ class AgentDQN(Agent):
         
         next_state_values = torch.zeros(self.batch_size).to(device)
         #next_state_batch_tensor = torch.cat(next_state_batch).cuda()
-        
+
         value_target, indices_target = self.target_net(non_final_next_states).max(1)
         
         
@@ -286,6 +305,7 @@ class AgentDQN(Agent):
                 plt.title('learning curve of dqn with pacman')
                 plt.savefig('dqn-learning_curve.png')
                 """
+                
                 yield plot_list
 
             episodes_done_num += 1
