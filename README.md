@@ -24,6 +24,17 @@ testing DQN:
 If you want to see your agent playing the game,
 * `$ python3 test.py --test_[pg|dqn] --do_render`
 
+## Plot reward curve
+1.  Plot Normal reward curve of policy gradient and DQN
+    -   python3 main.py --plot_dqn 1
+    -   python3 main.py --plot_pg 1
+
+2.  Plot reward curve on 4 different target update frequency of DQN
+    -   python3 main.py --plot_dqn 2
+
+3.  (Bonus) Plot improved reward curve on both DQN and policy gradient
+    -   python3 main.py --plot_dqn 3 (using Duel)
+    -   python3 main.py --plot_pg 3 (using importance sampling)
 
 ## Code structure
 
